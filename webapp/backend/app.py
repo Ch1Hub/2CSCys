@@ -193,7 +193,10 @@ def get_alerts():
     if attack_filter:
         alerts = [a for a in alerts if a.get("attack", "").lower() == attack_filter]
     if search:
-        alerts = [a for a in alerts if search in json.dumps(a).lower()]
+        alerts = [a for a in alerts if any(
+            search in str(v).lower()
+            for v in [a.get("status", ""), a.get("attack", ""), a.get("source", "")]
+        )]
 
     alerts.reverse()
     total = len(alerts)
