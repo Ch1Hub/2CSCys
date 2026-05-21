@@ -1,4 +1,4 @@
-# 2CSCys — Lightweight NIDS with Zeek + Machine Learning
+# Lightweight NIDS with Zeek + Machine Learning
 
 A two-tier Network Intrusion Detection System combining **Zeek** network analysis with **LightGBM + CatBoost** ensemble for real-time and offline threat detection, with built-in zero-day attack identification.
 
