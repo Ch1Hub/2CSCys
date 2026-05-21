@@ -71,4 +71,4 @@ class AlertEngine:
 
         log_path = os.path.join(self.log_dir, "alerts.jsonl")
         with open(log_path, "a") as f:
-            f.write(json.dump(alert, f, default=str) + "\n")
+            f.write(json.dumps(alert, default=str) + "\n")

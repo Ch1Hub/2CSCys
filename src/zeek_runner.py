@@ -8,15 +8,18 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
+PROJECT_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+
 
 class ZeekRunner:
     def __init__(self, config: dict):
         self.zeek_binary = config.get("zeek", {}).get("binary_path", "zeek")
-        self.scripts_dir = config.get("zeek", {}).get("scripts_dir", "zeek")
+        self.scripts_dir = os.path.join(PROJECT_ROOT, config.get("zeek", {}).get("scripts_dir", "zeek"))
         self.output_dir = config.get("zeek", {}).get("output_dir", "logs")
         os.makedirs(self.output_dir, exist_ok=True)
 
     def run_offline(self, pcap_path: str, output_dir: Optional[str] = None) -> str:
+        pcap_path = os.path.abspath(pcap_path)
         if not os.path.isfile(pcap_path):
             raise FileNotFoundError(f"PCAP file not found: {pcap_path}")
 
@@ -87,19 +90,15 @@ class ZeekRunner:
                 pass
 
     def get_log_paths(self, output_dir: str) -> dict:
-        expected = {
-            "conn": "conn.log",
-            "dns": "dns.log",
-            "http": "http.log",
-            "ssl": "ssl.log",
-            "weird": "weird.log",
-            "notice": "notice.log"
-        }
+        expected = ["conn", "dns", "http", "ssl", "weird", "notice"]
         paths = {}
-        for key, filename in expected.items():
-            path = os.path.join(output_dir, filename)
-            if os.path.isfile(path):
-                paths[key] = path
-            else:
-                logger.warning("Expected log not found: %s", path)
+        for key in expected:
+            for suffix in ["", "-2", "-3", "-4"]:
+                filename = f"{key}.log" if not suffix else f"{key}{suffix}.log"
+                path = os.path.join(output_dir, filename)
+                if os.path.isfile(path):
+                    paths[key] = path
+                    break
+            if key not in paths:
+                logger.debug("Expected log not found: %s/%s.log", output_dir, key)
         return paths

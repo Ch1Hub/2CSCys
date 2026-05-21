@@ -20,6 +20,8 @@ import sys
 import numpy as np
 import pandas as pd
 import joblib
+from sklearn.neighbors import NearestNeighbors
+from sklearn.preprocessing import StandardScaler
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -103,9 +105,24 @@ def label_zeek_flows(zeek_features, cic_df):
     proto_col = find_column(cic_df, CIC_CSV_COLUMNS["protocol"])
     label_col = find_column(cic_df, CIC_CSV_COLUMNS["label"])
 
+    # If IP columns are missing, use feature-based fuzzy matching
     if not all([src_ip_col, dst_ip_col, label_col]):
-        logger.error("Cannot find required columns in CIC CSV. Available: %s", list(cic_df.columns))
-        return zeek_features
+        logger.warning("Missing Source/Destination IP columns. Falling back to feature-based matching.")
+        logger.warning("Available columns: %s", list(cic_df.columns))
+        has_dst_port = "Destination Port" in cic_df.columns and "dst_port" in zeek_features.columns
+        has_flows = ("Total Length of Fwd Packets" in cic_df.columns and
+                     "Total Length of Bwd Packets" in cic_df.columns and
+                     "Total Fwd Packets" in cic_df.columns and
+                     "Total Backward Packets" in cic_df.columns and
+                     "Flow Duration" in cic_df.columns)
+        if has_dst_port and has_flows:
+            logger.info("Using feature-based nearest-neighbor matching (dst_port + duration + bytes + pkts)")
+            return label_zeek_flows_nn(zeek_features, cic_df)
+        else:
+            logger.error("Cannot match: need either (Source IP, Destination IP) or (Destination Port + Flow features)")
+            return zeek_features
+
+    # Original IP-based matching
 
     cic_labels = cic_df[[src_ip_col, dst_ip_col, label_col]].copy()
     if src_port_col:
@@ -131,6 +148,52 @@ def label_zeek_flows(zeek_features, cic_df):
     stats = zeek_features["mapped_label"].value_counts()
     logger.info("Label distribution after matching:\n%s", stats.to_string())
 
+    return zeek_features
+
+
+def label_zeek_flows_nn(zeek_features, cic_df):
+    """Label Zeek flows using nearest-neighbor matching on (dst_port, duration, bytes, packets)."""
+    from sklearn.neighbors import NearestNeighbors
+    from sklearn.preprocessing import StandardScaler
+
+    zeek_features = zeek_features.copy()
+    zeek_features["total_bytes"] = zeek_features["orig_bytes"] + zeek_features["resp_bytes"]
+    zeek_features["total_pkts"] = zeek_features["orig_pkts"] + zeek_features["resp_pkts"]
+
+    cic_df = cic_df.copy()
+    cic_df["total_bytes"] = cic_df["Total Length of Fwd Packets"] + cic_df["Total Length of Bwd Packets"]
+    cic_df["total_pkts"] = cic_df["Total Fwd Packets"] + cic_df["Total Backward Packets"]
+    cic_df["duration_sec"] = cic_df["Flow Duration"] / 1_000_000.0
+    cic_df["mapped_label"] = map_labels(cic_df["Label"])
+
+    z_features = ["dst_port", "duration", "total_bytes", "total_pkts"]
+    c_features = ["Destination Port", "duration_sec", "total_bytes", "total_pkts"]
+
+    z_X = zeek_features[z_features].values.astype(np.float64)
+    c_X = cic_df[c_features].values.astype(np.float64)
+    c_labels = cic_df["mapped_label"].values
+
+    z_X = np.nan_to_num(z_X, nan=0.0, posinf=0.0, neginf=0.0)
+    c_X = np.nan_to_num(c_X, nan=0.0, posinf=0.0, neginf=0.0)
+
+    if len(c_X) == 0:
+        zeek_features["mapped_label"] = "Benign"
+        return zeek_features
+
+    scaler = StandardScaler()
+    all_X = np.vstack([z_X, c_X])
+    scaler.fit(all_X)
+    z_X_norm = scaler.transform(z_X)
+    c_X_norm = scaler.transform(c_X)
+
+    logger.info("  NN matching: %d Zeek flows vs %d CIC flows", len(z_X), len(c_X))
+    nn = NearestNeighbors(n_neighbors=1, algorithm="ball_tree", n_jobs=-1)
+    nn.fit(c_X_norm)
+    _, indices = nn.kneighbors(z_X_norm)
+
+    zeek_features["mapped_label"] = c_labels[indices.flatten()]
+    stats = zeek_features["mapped_label"].value_counts()
+    logger.info("Label distribution after NN matching:\n%s", stats.to_string())
     return zeek_features
 
 

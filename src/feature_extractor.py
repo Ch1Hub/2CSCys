@@ -160,7 +160,7 @@ class FeatureExtractor:
 
     def extract_tls_features(self, ssl_df: pd.DataFrame, conn_uids: pd.Series) -> pd.DataFrame:
         result = pd.DataFrame(index=conn_uids.values)
-        result["ja3_hash"] = "0"
+        result["ja3_hash"] = 0
         result["tls_version"] = "unknown"
         result["cipher_count"] = 0.0
         result["self_signed"] = 0
@@ -178,7 +178,8 @@ class FeatureExtractor:
 
         for uid, group in ssl_df.groupby("uid"):
             if "ja3" in group.columns:
-                ja3_map[uid] = group["ja3"].mode().iloc[0] if len(group) > 0 else "0"
+                ja3_val = group["ja3"].mode().iloc[0] if len(group) > 0 else "0"
+                ja3_map[uid] = abs(hash(str(ja3_val))) % (10 ** 9)
             if "version" in group.columns:
                 version_map[uid] = group["version"].mode().iloc[0] if len(group) > 0 else "unknown"
             if "cipher" in group.columns:
@@ -188,7 +189,7 @@ class FeatureExtractor:
                 statuses = group["validation_status"].dropna().astype(str).tolist()
                 self_signed_map[uid] = 1 if any("self" in s.lower() or "invalid" in s.lower() for s in statuses) else 0
 
-        result["ja3_hash"] = result.index.map(lambda u: ja3_map.get(u, "0"))
+        result["ja3_hash"] = result.index.map(lambda u: ja3_map.get(u, 0))
         result["tls_version"] = result.index.map(lambda u: version_map.get(u, "unknown"))
         result["cipher_count"] = result.index.map(lambda u: cipher_map.get(u, 0.0))
         result["self_signed"] = result.index.map(lambda u: self_signed_map.get(u, 0))
@@ -207,34 +208,90 @@ class FeatureExtractor:
             df["ts"] = pd.to_numeric(df["ts"], errors="coerce")
             df = df.sort_values("ts").reset_index(drop=True)
 
-        df["connections_count_5s"] = 0
-        df["connections_count_30s"] = 0
-        df["unique_dst_ips"] = 0
-        df["unique_dst_ports"] = 0
-        df["failed_connections"] = 0
-
         if "ts" not in df.columns or df["ts"].isna().all():
+            df["connections_count_5s"] = 0
+            df["connections_count_30s"] = 0
+            df["unique_dst_ips"] = 0
+            df["unique_dst_ports"] = 0
+            df["failed_connections"] = 0
             return df
 
         times = df["ts"].values
+        n = len(df)
 
-        for i in range(len(df)):
+        start_5s = np.searchsorted(times, times - short_window, side="left")
+        start_30s = np.searchsorted(times, times - agg_window, side="left")
+
+        df["connections_count_5s"] = np.arange(n, dtype=np.int32) - start_5s + 1
+        df["connections_count_30s"] = np.arange(n, dtype=np.int32) - start_30s + 1
+
+        has_dst_ip = "dst_ip" in df.columns
+        has_dst_port = "dst_port" in df.columns
+        has_state = "conn_state" in df.columns
+
+        failed_states = frozenset(["REJ", "RSTO", "RSTR", "RSTOS0", "S0", "SH"])
+
+        dst_ip_vals = list(df["dst_ip"].values) if has_dst_ip else None
+        dst_port_vals = list(df["dst_port"].values) if has_dst_port else None
+        conn_state_vals = list(df["conn_state"].values.astype(str)) if has_state else None
+
+        unique_ips = np.zeros(n, dtype=np.int32)
+        unique_ports = np.zeros(n, dtype=np.int32)
+        failed = np.zeros(n, dtype=np.int32)
+
+        from collections import Counter
+
+        ip_counter = Counter() if has_dst_ip else None
+        port_counter = Counter() if has_dst_port else None
+        failed_counter = Counter() if has_state else None
+
+        window_5s_front = 0
+        window_30s_front = 0
+
+        for i in range(n):
             t = times[i]
-            mask_5s = (times >= t - short_window) & (times <= t)
-            mask_30s = (times >= t - agg_window) & (times <= t)
 
-            df.loc[i, "connections_count_5s"] = int(mask_5s.sum())
-            df.loc[i, "connections_count_30s"] = int(mask_30s.sum())
+            while window_30s_front < i and times[window_30s_front] < t - agg_window:
+                if ip_counter is not None:
+                    val = dst_ip_vals[window_30s_front]
+                    ip_counter[val] -= 1
+                    if ip_counter[val] <= 0:
+                        del ip_counter[val]
+                if port_counter is not None:
+                    val = dst_port_vals[window_30s_front]
+                    port_counter[val] -= 1
+                    if port_counter[val] <= 0:
+                        del port_counter[val]
+                if failed_counter is not None:
+                    s = conn_state_vals[window_30s_front]
+                    if s in failed_states:
+                        failed_counter[s] -= 1
+                        if failed_counter[s] <= 0:
+                            del failed_counter[s]
+                window_30s_front += 1
 
-            if "dst_ip" in df.columns:
-                df.loc[i, "unique_dst_ips"] = df.loc[mask_30s, "dst_ip"].nunique()
-            if "dst_port" in df.columns:
-                df.loc[i, "unique_dst_ports"] = df.loc[mask_30s, "dst_port"].nunique()
-            if "conn_state" in df.columns:
-                failed = df.loc[mask_30s, "conn_state"].astype(str)
-                df.loc[i, "failed_connections"] = int(
-                    failed.isin(["REJ", "RSTO", "RSTR", "RSTOS0", "S0", "SH"]).sum()
-                )
+            while window_5s_front < i and times[window_5s_front] < t - short_window:
+                window_5s_front += 1
+
+            if ip_counter is not None:
+                ip_counter[dst_ip_vals[i]] += 1
+            if port_counter is not None:
+                port_counter[dst_port_vals[i]] += 1
+            if failed_counter is not None:
+                s = conn_state_vals[i]
+                if s in failed_states:
+                    failed_counter[s] += 1
+
+            if ip_counter is not None:
+                unique_ips[i] = len(ip_counter)
+            if port_counter is not None:
+                unique_ports[i] = len(port_counter)
+            if failed_counter is not None:
+                failed[i] = sum(failed_counter.values())
+
+        df["unique_dst_ips"] = unique_ips
+        df["unique_dst_ports"] = unique_ports
+        df["failed_connections"] = failed
 
         return df
 

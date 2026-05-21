@@ -110,41 +110,59 @@ class WindowManager:
     def build_feature_row(self, conn_row: dict) -> dict:
         self.add_connection(conn_row)
 
-        duration = float(conn_row.get("duration", 0)) or 0.001
-        orig_bytes = float(conn_row.get("orig_bytes", 0))
-        resp_bytes = float(conn_row.get("resp_bytes", 0))
-        orig_pkts = float(conn_row.get("orig_pkts", 0))
-        resp_pkts = float(conn_row.get("resp_pkts", 0))
-
-        flow_rate = (orig_bytes + resp_bytes) / duration
-        bytes_ratio = orig_bytes / (resp_bytes + 1)
-        packets_ratio = orig_pkts / (resp_pkts + 1)
-
         short_stats = self.get_short_window_features()
         agg_stats = self.get_agg_window_features()
 
-        feature_row = {
-            "uid": conn_row.get("uid", ""),
-            "ts": conn_row.get("ts", time.time()),
-            "duration": duration,
-            "orig_bytes": orig_bytes,
-            "resp_bytes": resp_bytes,
-            "orig_pkts": orig_pkts,
-            "resp_pkts": resp_pkts,
-            "service": conn_row.get("service", "-"),
-            "conn_state": conn_row.get("conn_state", "-"),
-            "proto": conn_row.get("proto", "-"),
-            "flow_rate": flow_rate,
-            "bytes_ratio": bytes_ratio,
-            "packets_ratio": packets_ratio,
-            "connections_count_5s": short_stats["connections_count"],
-            "connections_count_30s": agg_stats["connections_count"],
-            "unique_dst_ips": agg_stats["unique_dst_ips"],
-            "unique_dst_ports": agg_stats["unique_dst_ports"],
-            "failed_connections": agg_stats["failed_connections"],
-            "dns_entropy": 0.0,
-            "nxdomain_ratio": 0.0,
+        feature_row = {k: v for k, v in conn_row.items()}
+
+        for k in ["uid", "ts"]:
+            if k not in feature_row:
+                feature_row[k] = conn_row.get(k, "" if k == "uid" else time.time())
+
+        numeric_defaults = {
+            "duration": 0.0, "orig_bytes": 0.0, "resp_bytes": 0.0,
+            "orig_pkts": 0.0, "resp_pkts": 0.0, "dst_port": 0,
+            "dns_entropy": 0.0, "nxdomain_ratio": 0.0,
+            "uri_length": 0.0, "response_code": 0.0, "user_agent_entropy": 0.0,
+            "ja3_hash": 0, "cipher_count": 0.0, "self_signed": 0,
         }
+        for k, default in numeric_defaults.items():
+            if k not in feature_row or feature_row[k] is None:
+                feature_row[k] = default
+            try:
+                feature_row[k] = float(feature_row[k])
+            except (ValueError, TypeError):
+                feature_row[k] = default
+
+        str_defaults = {
+            "service": "-", "conn_state": "-", "proto": "-",
+            "method": "GET", "tls_version": "unknown",
+        }
+        for k, default in str_defaults.items():
+            if k not in feature_row or feature_row[k] is None:
+                feature_row[k] = default
+
+        duration = feature_row.get("duration", 0.0) or 0.001
+        orig_bytes = feature_row.get("orig_bytes", 0.0)
+        resp_bytes = feature_row.get("resp_bytes", 0.0)
+        orig_pkts = feature_row.get("orig_pkts", 0.0)
+        resp_pkts = feature_row.get("resp_pkts", 0.0)
+
+        feature_row["flow_rate"] = (orig_bytes + resp_bytes) / duration
+        feature_row["bytes_ratio"] = orig_bytes / (resp_bytes + 1)
+        feature_row["packets_ratio"] = orig_pkts / (resp_pkts + 1)
+
+        feature_row["connections_count_5s"] = short_stats["connections_count"]
+        feature_row["connections_count_30s"] = agg_stats["connections_count"]
+        feature_row["unique_dst_ips"] = agg_stats["unique_dst_ips"]
+        feature_row["unique_dst_ports"] = agg_stats["unique_dst_ports"]
+        feature_row["failed_connections"] = agg_stats["failed_connections"]
+
+        import math as _m
+        for ratio_key in ["flow_rate", "bytes_ratio", "packets_ratio"]:
+            val = feature_row.get(ratio_key, 0.0)
+            if val == float("inf") or val == float("-inf") or (_m.isnan(val) if isinstance(val, float) else False):
+                feature_row[ratio_key] = 0.0
 
         self.window_id += 1
         return feature_row

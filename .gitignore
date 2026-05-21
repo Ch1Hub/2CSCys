@@ -3,17 +3,31 @@ __pycache__/
 *.pyc
 *.pyo
 .ipynb_checkpoints/
+# Large CIC-IDS2017 PCAPs
 data/pcaps/*.pcap
 data/pcaps/*.pcapng
+data/pcaps/zeek_logs/
+data/pcaps/test_scenarios/
+
+# CIC-IDS2017 label files
 data/csv/*.csv
+data/csvs/
+
+# Processed datasets
 data/processed/*.csv
 data/processed/*.joblib
-data/processed/zeek_logs/
+
+# Trained models
 models/*.joblib
 models/*.png
+
+# Runtime output
 logs/*.log
 logs/*.jsonl
 output/*.json
+
+# Training artifacts
+catboost_info/
 *.egg-info/
 dist/
 build/

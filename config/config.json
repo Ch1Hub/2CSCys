@@ -1,6 +1,6 @@
 {
     "zeek": {
-        "binary_path": "zeek",
+        "binary_path": "/opt/zeek/bin/zeek",
         "output_dir": "logs",
         "scripts_dir": "zeek"
     },
@@ -47,8 +47,10 @@
     "tier1": {
         "model_type": "LightGBM",
         "secondary_model": "IsolationForest",
-        "lgbm_threshold": 0.30,
+        "lgbm_threshold": 0.3,
         "target_recall": 0.95,
+        "use_iforest": false,
+        "lgbm_threshold_nof": 0.5,
         "model_path": "models/tier1_lgbm.joblib",
         "iforest_path": "models/tier1_iforest.joblib",
         "preprocessor_path": "models/tier1_preprocessor.joblib",
@@ -56,11 +58,16 @@
     },
     "tier2": {
         "model_type": "CatBoost",
-        "classes": ["DoS", "BruteForce", "PortScan"],
+        "classes": [
+            "BruteForce",
+            "DoS",
+            "PortScan"
+        ],
         "unknown_threshold": 0.65,
         "model_path": "models/tier2_catboost.joblib",
         "preprocessor_path": "models/tier2_preprocessor.joblib",
-        "feature_order_path": "models/tier2_feature_order.joblib"
+        "feature_order_path": "models/tier2_feature_order.joblib",
+        "label_encoder_path": "models/tier2_label_encoder.joblib"
     },
     "window": {
         "short_window_seconds": 5,
@@ -68,8 +75,17 @@
     },
     "dataset": {
         "name": "CIC-IDS2017",
-        "training_classes": ["Benign", "DoS", "BruteForce", "PortScan"],
-        "excluded_classes": ["DDoS", "Botnet", "WebAttack"],
+        "training_classes": [
+            "Benign",
+            "DoS",
+            "BruteForce",
+            "PortScan"
+        ],
+        "excluded_classes": [
+            "DDoS",
+            "Botnet",
+            "WebAttack"
+        ],
         "primary_unknown": "DDoS",
         "data_dir": "data",
         "pcaps_dir": "data/pcaps",
