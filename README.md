@@ -125,7 +125,7 @@ Confidence < 0.65 triggers **Unknown** classification for potential zero-day att
 ### Install
 
 ```bash
-git clone <repo-url>
+git clone https://github.com/Ch1Hub/2CSCys.git
 cd 2CSCys
 python3 -m venv venv
 source venv/bin/activate
