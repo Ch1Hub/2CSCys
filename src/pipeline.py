@@ -38,7 +38,25 @@ class OfflinePipeline:
     def load_models(self, model_dir: str = "models"):
         self.tier1.load(model_dir)
         self.tier2.load(model_dir)
+        self._load_shap(model_dir)
         logger.info("All models loaded for offline pipeline")
+
+    def _load_shap(self, model_dir: str = "models"):
+        import joblib
+        try:
+            t1_model = self.tier1.lgbm_model
+            feat_order = self.tier1.feature_order
+            self.shap_explainer.load_tier1(t1_model, feat_order)
+            logger.info("Tier-1 SHAP explainer loaded")
+        except Exception as e:
+            logger.warning("Tier-1 SHAP explainer not loaded: %s", e)
+        try:
+            t2_model = self.tier2.model
+            feat_order = self.tier2.feature_order
+            self.shap_explainer.load_tier2(t2_model, feat_order)
+            logger.info("Tier-2 SHAP explainer loaded")
+        except Exception as e:
+            logger.warning("Tier-2 SHAP explainer not loaded: %s", e)
 
     def process_pcap(self, pcap_path: str, output_dir: Optional[str] = None) -> list:
         logger.info("Starting offline pipeline for %s", pcap_path)
@@ -125,6 +143,7 @@ class LivePipeline:
     def load_models(self, model_dir: str = "models"):
         self.tier1.load(model_dir)
         self.tier2.load(model_dir)
+        self._load_shap(model_dir)
         logger.info("All models loaded for live pipeline")
 
     def process_window(self, conn_row: dict) -> dict:

@@ -14,6 +14,7 @@ logging.basicConfig(
         logging.FileHandler("logs/pipeline.log")
     ]
 )
+logging.getLogger("src.shap_explainer").setLevel(logging.ERROR)
 logger = logging.getLogger(__name__)
 
 
