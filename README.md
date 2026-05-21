@@ -124,7 +124,7 @@ Confidence < 0.65 triggers **Unknown** classification for potential zero-day att
 ### Install
 
 ```bash
-git clone https://github.com/Ch1Hub/2CSCys.git
+git clone https://github.com/Ch1Hub/Lightweight-NIDS-with-Zeek-Machine-Learning.git
 cd 2CSCys
 python3 -m venv venv
 source venv/bin/activate
