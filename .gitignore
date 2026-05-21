@@ -28,8 +28,8 @@ output/*.json
 # Training artifacts
 catboost_info/
 *.egg-info/
-/dist/
-/build/
+dist/
+build/
 .env
 
 # LaTeX artifacts
@@ -43,3 +43,5 @@ report.toc
 # Webapp
 webapp/backend/venv/
 webapp/backend/uploads/*
+webapp/frontend/dist/
+webapp/frontend/node_modules/

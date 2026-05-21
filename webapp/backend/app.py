@@ -261,6 +261,8 @@ def health():
 
 STATIC_DIR = os.path.join(os.path.dirname(__file__), "..", "frontend", "dist")
 
+_NO_SPA = not os.path.isfile(os.path.join(STATIC_DIR, "index.html"))
+
 
 @app.route("/assets/<path:filename>")
 def serve_assets(filename):
@@ -273,6 +275,8 @@ def serve_spa(path):
     if path.startswith("api/"):
         from flask import abort
         abort(404)
+    if _NO_SPA:
+        return jsonify({"error": "Frontend not built. Run: cd webapp/frontend && npm install && npx vite build"}), 503
     return send_file(os.path.join(STATIC_DIR, "index.html"))
 
 
